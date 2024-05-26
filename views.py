@@ -1,92 +1,104 @@
-from errors import HttpError
-from flask import jsonify, request
-from flask.views import MethodView
+from aiohttp import web
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from errors import get_http_error
 from models import Article, Token, User
-from schema import CreateArticle, CreateUser, Login, UpdateUser, UpdateArticle
-from sqlalchemy.orm import Session
+from schema import CreateArticle, CreateUser, Login, UpdateUser, UpdateArticle, SCHEMA_MODEL
 from auth import check_token, hash_password, check_password, check_user
-from crud import get_item_by_id, add_item, create_item, update_item, delete_item
+from crud import get_item_by_id, create_item, update_item, delete_item, select_one
 from tools import validate
 
 
-class BaseView(MethodView):
+class BaseView(web.View):
     @property
-    def session(self) -> Session:
-        return request.session
+    def session(self) -> AsyncSession:
+        return self.request.session
 
     @property
     def token(self) -> Token:
-        return request.token
+        return self.request.token
 
     @property
     def user(self) -> User:
-        return request.token.user
+        return self.request.token.user
+
+    @property
+    def is_authorized(self) -> bool:
+        return hasattr(self.request, "token")
+
+    async def validated_json(self, schema: SCHEMA_MODEL):
+        raw_json = await self.request.json()
+        return validate(schema, raw_json)
 
 
 class UserView(BaseView):
-
     @check_token
-    def get(self):
-        return jsonify(self.user.dict)
+    async def get(self):
+        return web.json_response(self.user.dict)
     
-    def post(self):
-        payload = validate(CreateUser, request.json)
+    async def post(self):
+        payload = await self.validated_json(CreateUser)
         payload["password"] = hash_password(payload["password"])
-        user = create_item(User, payload, self.session)
-        return jsonify({"id": user.id})
+        user = await create_item(User, payload, self.session)
+        return web.json_response({"id": user.id})
     
     @check_token
-    def patch(self):
-        payload = validate(UpdateUser, request.json)
-        user = update_item(self.token.user, payload, self.session)
-        return jsonify({"user": user.id, "email": user.email})
+    async def patch(self):
+        payload = await self.validated_json(UpdateUser)
+        user = await update_item(self.token.user, payload, self.session)
+        return web.json_response({"user": user.id, "email": user.email})
     
     @check_token
-    def delete(self):
-        delete_item(self.token.user, self.session)
-        return jsonify({"User deleted": "Ok"})
+    async def delete(self):
+        await delete_item(self.token.user, self.session)
+        return web.json_response({"User deleted": "Ok"})
 
 
 class LoginView(BaseView):
-    def post(self):
-        payload = validate(Login, request.json)
-        user = self.session.query(User).filter_by(name=payload["name"]).first()
+    async def post(self):
+        payload = await self.validated_json(Login)
+        query = select(User).where(User.name == payload["name"]).limit(1)
+        user = await select_one(query, self.session)
         if user is None:
-            raise HttpError(404, "User not found")
-        if check_password(user.password, payload["password"]):
-            token = create_item(Token, {"user_id": user.id}, self.session)
-            add_item(token, self.session)
-            return jsonify({"token": token.token})
-        raise HttpError(401, "Invalid password")
+            raise get_http_error(web.HTTPNotFound, "User not found")
+        if check_password(payload["password"], user.password):
+            token = await create_item(Token, {"user_id": user.id}, self.session)
+            return web.json_response({"token": str(token.token)})
+        raise get_http_error(web.HTTPUnauthorized, "Invalid password")
     
 
 class ArticleView(BaseView):
 
-    @check_token
-    def get(self, article_id:int=None):
-        if article_id is None:
-            return jsonify([article.dict for article in self.user.articles])
-        article = get_item_by_id(Article, article_id, self.session)
-        check_user(article, self.token.user_id)
-        return jsonify(article.dict)
+    @property
+    def article_id(self):
+        article_id = self.request.match_info.get("article_id", None)
+        return int(article_id) if article_id else None
 
     @check_token
-    def post(self):
-        payload = validate(CreateArticle, request.json)
-        article = create_item(Article, dict(user_id=self.token.user_id, **payload), self.session)
-        return jsonify({"id": article.id})
+    async def get(self):
+        if self.article_id is None:
+            return web.json_response([article.dict for article in self.user.articles])
+        article = await get_item_by_id(Article, self.article_id, self.session)
+        check_user(article, self.token.user_id)
+        return web.json_response(article.dict)
+
+    @check_token
+    async def post(self):
+        payload = await self.validated_json(CreateArticle)
+        article = await create_item(Article, dict(user_id=self.token.user_id, **payload), self.session)
+        return web.json_response({"id": article.id})
     
     @check_token
-    def patch(self, article_id):
-        payload = validate(UpdateArticle, request.json)
-        article = get_item_by_id(Article, article_id, self.session)
+    async def patch(self):
+        payload = await self.validated_json(UpdateArticle)
+        article = await get_item_by_id(Article, self.article_id, self.session)
         check_user(article, self.token.user_id)
-        article = update_item(article, payload, self.session)
-        return jsonify({"id": article.id})
+        article = await update_item(article, payload, self.session)
+        return web.json_response({"id": article.id})
     
     @check_token
-    def delete(self, article_id):
-        article = get_item_by_id(Article, article_id, self.session)
+    async def delete(self):
+        article = await get_item_by_id(Article, self.article_id, self.session)
         check_user(article, self.token.user_id)
-        delete_item(article, self.session)
-        return jsonify({"status": "ok"})
+        await delete_item(article, self.session)
+        return web.json_response({"status": "ok"})

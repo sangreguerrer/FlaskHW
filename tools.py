@@ -1,18 +1,15 @@
 from schema import SCHEMA_MODEL
 from pydantic import ValidationError
-from errors import HttpError
+from errors import get_http_error
 from flask import jsonify
-from app import get_app
-
-
-app = get_app()
+from aiohttp import web
 
 
 def get_json_response(data: dict, status_code=200):
     return jsonify(data), status_code
 
 
-def handle_error(error: HttpError):
+def handle_error(error: get_http_error):
     return get_json_response(
         {"status": "error", "description": error.description}, error.status_code
     )
@@ -24,4 +21,4 @@ def validate(model: SCHEMA_MODEL, data: dict):
     except ValidationError as err:
         error = err.errors()[0]
         error.pop("ctx", None)
-        raise HttpError(400, error)
+        raise get_http_error(web.HTTPBadRequest, error)

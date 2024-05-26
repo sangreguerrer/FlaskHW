@@ -24,7 +24,6 @@ class Login(AbstractUser):
 
 
 class CreateUser(AbstractUser):
-
     @pydantic.field_validator("password")
     @classmethod
     def secure_password(cls, v: str) -> str:

@@ -1,4 +1,7 @@
-class HttpError(Exception):
-    def __init__(self, status_code, description):
-        self.status_code = status_code
-        self.description = description
+import json
+
+
+def get_http_error(error_class, message):
+    return error_class(                        
+        text=json.dumps({"error": message}),   
+        content_type='application/json')

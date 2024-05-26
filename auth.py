@@ -1,38 +1,43 @@
-from errors import HttpError
-from flask_bcrypt import Bcrypt
-from flask import request
+import datetime
+from aiohttp.web import View
+from sqlalchemy import select
+
+from crud import select_one
+from models import TOKEN_TTL
+from errors import get_http_error
+import bcrypt
 from models import Token, MODEL
-
-from app import get_app
-
-
-app = get_app()
-
-bcrypt = Bcrypt(app)
+from aiohttp import web
 
 
 def hash_password(password: str):
-    return bcrypt.generate_password_hash(password.encode()).decode()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
-def check_password(password: str, hashed_password):
-    return bcrypt.check_password_hash(password.encode(), hashed_password.encode())
+def check_password(password: str, hashed_password: str):
+    return bcrypt.checkpw(password.encode(), hashed_password.encode())
 
 
 def check_token(handler):
-    def wrapper(*args, **kwargs):
-        token = request.headers.get("Authorization")
+    async def wrapper(view: View):
+        token_uid = view.request.headers.get("Authorization")
+        if token_uid is None:
+            raise get_http_error(web.HTTPUnauthorized, "No token provided")
+        token_query = select(Token).where(
+            Token.token == token_uid,
+            Token.creation_time >
+            datetime.datetime.now() - datetime.timedelta(seconds=TOKEN_TTL)
+        )
+        token = await select_one(token_query, view.session)
         if token is None:
-            raise HttpError(401, "No token provided")
-        token = request.session.query(Token).filter_by(token=token).first()
-        if token is None:
-            raise HttpError(401, "Invalid token")
-        request.token = token
-        return handler(*args, **kwargs)
+            raise get_http_error(web.HTTPUnauthorized, "Unauthorized")
+
+        view.request.token = token
+        return await handler(view)
     
     return wrapper
 
 
 def check_user(item: MODEL, user_id: int):
     if item.user_id != user_id:
-        raise HttpError(403, "Access denied")
+        raise get_http_error(web.HTTPForbidden, "Access denied")
