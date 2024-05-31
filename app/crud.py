@@ -1,12 +1,11 @@
 from typing import Any
-from aiohttp import web
 
+from models import MODEL, MODEL_TYPE
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
-from errors import get_http_error
-from models import MODEL, MODEL_TYPE, Session
+from errors import NotFound, Conflict
 
 
 async def select_one(query: Select[Any], session: AsyncSession) -> MODEL:
@@ -19,7 +18,7 @@ async def select_one(query: Select[Any], session: AsyncSession) -> MODEL:
 async def get_item_by_id(model, item_id, session):
     item = await session.get(model, item_id)
     if item is None:
-        raise get_http_error(web.HTTPNotFound, f"Data with id {item_id} is not found")
+        raise NotFound(f"{model.__name__} not found")
     return item
 
 
@@ -27,12 +26,15 @@ async def add_item(item: MODEL, session: AsyncSession) -> MODEL:
     try:
         session.add(item)
         await session.commit()
-    except IntegrityError:
-        raise get_http_error(web.HTTPConflict, f"item with name {item.name} already exists")
+    except IntegrityError as err:
+        if err.orig.pgcode == "23505":
+            raise Conflict(f"{item.__class__.__name__} already exists")
+        else:
+            raise err
     return item
 
 
-async def create_item(model: MODEL_TYPE, payload: dict, session: Session) -> MODEL:
+async def create_item(model: MODEL_TYPE, payload: dict, session: AsyncSession) -> MODEL:
     item = model(**payload)
     item = await add_item(item, session)
     return item
@@ -45,6 +47,14 @@ async def update_item(item: MODEL, payload: dict, session: AsyncSession) -> MODE
     return item
 
 
-async def delete_item(item: MODEL, session: Session):
+async def update_item_by_id(
+    model: MODEL_TYPE, item_id: int, payload: dict, session: AsyncSession
+) -> MODEL:
+    item = get_item_by_id(model, item_id, session)
+    await update_item(item, payload, session)
+    return item
+
+
+async def delete_item(item: MODEL, session: AsyncSession):
     await session.delete(item)
     await session.commit()

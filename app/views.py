@@ -1,7 +1,7 @@
 from aiohttp import web
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from errors import get_http_error
+from errors import Unauthorized
 from models import Article, Token, User
 from schema import CreateArticle, CreateUser, Login, UpdateUser, UpdateArticle, SCHEMA_MODEL
 from auth import check_token, hash_password, check_password, check_user
@@ -46,12 +46,12 @@ class UserView(BaseView):
     async def patch(self):
         payload = await self.validated_json(UpdateUser)
         user = await update_item(self.token.user, payload, self.session)
-        return web.json_response({"user": user.id, "email": user.email})
+        return web.json_response({"id": user.id})
     
     @check_token
     async def delete(self):
         await delete_item(self.token.user, self.session)
-        return web.json_response({"User deleted": "Ok"})
+        return web.json_response({"status": "Ok"})
 
 
 class LoginView(BaseView):
@@ -59,12 +59,12 @@ class LoginView(BaseView):
         payload = await self.validated_json(Login)
         query = select(User).where(User.name == payload["name"]).limit(1)
         user = await select_one(query, self.session)
-        if user is None:
-            raise get_http_error(web.HTTPNotFound, "User not found")
+        if not user:
+            raise Unauthorized("invalid user or password")
         if check_password(payload["password"], user.password):
             token = await create_item(Token, {"user_id": user.id}, self.session)
             return web.json_response({"token": str(token.token)})
-        raise get_http_error(web.HTTPUnauthorized, "Invalid password")
+        raise Unauthorized("Invalid user or password")
     
 
 class ArticleView(BaseView):

@@ -1,0 +1,8 @@
+DEFAULT_USER_NAME = "test_user_1"
+NEW_USER_NAME = "new_user"
+DEFAULT_USER_EMAIL = "example@mail.com"
+NEW_USER_EMAIL = "forexample@mail.com"
+NEW_USER_NAME_WITH_ARTICLES = "new_user_with_articles"
+DEFAULT_USER_PASSWORD = "Test_Password_1"
+NEW_TODO_ITEM_IMPORTANT = "new_todo_item_important"
+NEW_TODO_ITEM_NOT_IMPORTANT = "new_todo_item_not_important"

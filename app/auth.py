@@ -1,13 +1,13 @@
 import datetime
 from aiohttp.web import View
 from sqlalchemy import select
+from errors import Unauthorized, Forbidden
 
 from crud import select_one
-from models import TOKEN_TTL
-from errors import get_http_error
+from config import TOKEN_TTL
+
 import bcrypt
 from models import Token, MODEL
-from aiohttp import web
 
 
 def hash_password(password: str):
@@ -22,7 +22,7 @@ def check_token(handler):
     async def wrapper(view: View):
         token_uid = view.request.headers.get("Authorization")
         if token_uid is None:
-            raise get_http_error(web.HTTPUnauthorized, "No token provided")
+            raise Unauthorized("token not found")
         token_query = select(Token).where(
             Token.token == token_uid,
             Token.creation_time >
@@ -30,7 +30,7 @@ def check_token(handler):
         )
         token = await select_one(token_query, view.session)
         if token is None:
-            raise get_http_error(web.HTTPUnauthorized, "Unauthorized")
+            raise Unauthorized("Invalid token")
 
         view.request.token = token
         return await handler(view)
@@ -40,4 +40,4 @@ def check_token(handler):
 
 def check_user(item: MODEL, user_id: int):
     if item.user_id != user_id:
-        raise get_http_error(web.HTTPForbidden, "Access denied")
+        raise Forbidden("access denied")

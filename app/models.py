@@ -1,5 +1,4 @@
 import datetime
-import os
 import uuid
 from typing import List, Type
 
@@ -7,14 +6,13 @@ from sqlalchemy import DateTime, String, func, UUID, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncAttrs
 
-POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD', 'secret')
-POSTGRES_USER = os.getenv('POSTGRES_USER', 'app')
-POSTGRES_DB = os.getenv('POSTGRES_DB', 'app')
-POSTGRES_HOST = os.getenv('POSTGRES_HOST', '127.0.0.1')
-POSTGRES_PORT = os.getenv('POSTGRES_PORT', '5431')
-TOKEN_TTL = int(os.getenv("TOKEN_TTL", 60 * 60 * 24 * 7))
-
-
+from config import (
+    POSTGRES_PASSWORD,
+    POSTGRES_USER,
+    POSTGRES_DB,
+    POSTGRES_HOST,
+    POSTGRES_PORT,
+    )
 engine = create_async_engine(
     f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 )
@@ -88,7 +86,7 @@ class Article(Base):
             "id": self.id,
             "title": self.title,
             "description": self.description,
-            "owner": self.user_id,
+            "user_id": self.user_id,
             "created_at": self.created_at.isoformat(),
         }
 
